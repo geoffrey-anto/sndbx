@@ -2,25 +2,92 @@ package main
 
 import (
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 
 	check_current_context "github.com/geoffrey-anto/sndbx/internal/check_context"
 	"github.com/geoffrey-anto/sndbx/internal/sandbox"
+	"github.com/urfave/cli/v2"
 )
 
 func main() {
-	exists, file := check_current_context.CheckIfDockerfileExists()
+	app := &cli.App{
+		Name:  "sndbx",
+		Usage: "Spawn a quick sandbox 📦✅",
+		Commands: []*cli.Command{
+			{
+				Name:  "init",
+				Usage: "Initialize something",
+				Flags: []cli.Flag{
+					&cli.BoolFlag{
+						Name:        "build",
+						DefaultText: "false",
+						Usage:       "Enable build mode",
+					},
+					&cli.StringFlag{
+						Name:  "context",
+						Usage: "Name of Dockerfile/Image",
+						Value: "",
+					},
+				},
+				Action: func(c *cli.Context) error {
+					if c.Bool("build") {
+						if c.String("context") == "" {
+							exists, dockerfile := check_current_context.CheckIfDockerfileExists()
 
-	if !exists {
-		fmt.Printf("Available images %+v\n", sandbox.GetAvailableEnvironments())
-	} else {
-		dir, err := os.Getwd()
-		if err != nil {
-			fmt.Printf("Error getting current directory: %v\n", err)
-			return
-		}
+							if exists {
+								c.Set("context", dockerfile)
+							} else {
+								return fmt.Errorf("dockerfile path is required in build mode")
+							}
+						}
 
-		sandbox.CreateContainerWithLocalDockerfile(file, filepath.Base(dir))
+						fmt.Printf("Proceeding with build mode using local Dockerfile: %s\n", c.String("context"))
+
+						dir, err := os.Getwd()
+						if err != nil {
+							return fmt.Errorf("failed to get current directory: %v", err)
+						}
+
+						currentDirectory := filepath.Base(dir)
+						fmt.Printf("Current directory: %s\n", currentDirectory)
+
+						sandboxInstance := sandbox.NewSandboxWithLocalDockerfile(sandbox.SandboxOpts{
+							DockerContext: c.String("context"),
+							Directory:     currentDirectory,
+						})
+						sandboxInstance.Start()
+
+					} else {
+						fmt.Println("Continuing with available built image")
+
+						dir, err := os.Getwd()
+						if err != nil {
+							return fmt.Errorf("failed to get current directory: %v", err)
+						}
+
+						currentDirectory := filepath.Base(dir)
+						fmt.Printf("Current directory: %s\n", currentDirectory)
+
+						if c.String("context") == "" {
+							c.Set("context", "ubuntu:latest")
+						}
+						fmt.Printf("Proceeding using %s image\n", c.String("context"))
+
+						sandboxInstance := sandbox.NewSandboxWithImage(sandbox.SandboxOpts{
+							DockerContext: c.String("context"),
+							Directory:     currentDirectory,
+						})
+						sandboxInstance.Start()
+					}
+					return nil
+				},
+			},
+		},
+	}
+
+	if err := app.Run(os.Args); err != nil {
+		log.Fatal(err)
 	}
 }

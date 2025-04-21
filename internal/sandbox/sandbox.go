@@ -16,6 +16,15 @@ import (
 	"github.com/geoffrey-anto/sndbx/internal/utils"
 )
 
+type Sandbox struct {
+	Cli *client.Client
+}
+
+type SandboxOpts struct {
+	DockerContext string
+	Directory     string
+}
+
 func GetAvailableEnvironments() []string {
 	return []string{
 		"ubuntu:latest",
@@ -26,28 +35,63 @@ func GetAvailableEnvironments() []string {
 	}
 }
 
-func CreateContainerWithLocalDockerfile(filename string, directory string) error {
-	fmt.Printf("Using %s/%s file to create sndbx environment!\n", directory, filename)
-
-	cli, err := client.NewClientWithOpts(client.FromEnv)
-	if err != nil {
-		panic(err)
-	}
-
+// Function to Check if Image Exists locally or pull it
+func CheckIfImageExists(sandbox *Sandbox, ImageName string) (bool, error) {
 	ctx := context.Background()
 
-	dir := filepath.Dir(filename)
-	dockerfile := filepath.Base(filename)
+	images, err := sandbox.Cli.ImageList(ctx, image.ListOptions{})
+
+	if err != nil {
+		return false, errors.New("failed to list images")
+	}
+
+	for _, image := range images {
+		for _, tag := range image.RepoTags {
+			if tag == ImageName {
+				return true, nil
+			}
+		}
+	}
+
+	return false, nil
+}
+
+// Function to Pull Image
+func PullImage(sandbox *Sandbox, ImageName string) error {
+	ctx := context.Background()
+
+	reader, err := sandbox.Cli.ImagePull(ctx, ImageName, image.PullOptions{})
+
+	if err != nil {
+		return errors.New("failed to pull image")
+	}
+
+	defer reader.Close()
+
+	// Print the output of the pull command
+	io.Copy(os.Stdout, reader)
+
+	fmt.Printf("Pulled Image %s\n", ImageName)
+
+	return nil
+}
+
+// Function to Build Image
+func BuildImage(sandbox *Sandbox, DockerContext string, Directory string) (string, error) {
+	ctx := context.Background()
+
+	dir := filepath.Dir(DockerContext)
+	dockerfile := filepath.Base(DockerContext)
 
 	buildContext, err := utils.CreateTarContext(dir)
 
 	if err != nil {
-		return errors.New("error creating tar build context")
+		return "", errors.New("error creating tar build context")
 	}
 
-	imageName := fmt.Sprintf("%s-%s", "sndbx", directory)
+	imageName := fmt.Sprintf("%s-%s", "sndbx", Directory)
 
-	sandboxImage, err := cli.ImageBuild(ctx, buildContext, types.ImageBuildOptions{
+	sandboxImage, err := sandbox.Cli.ImageBuild(ctx, buildContext, types.ImageBuildOptions{
 		Dockerfile: dockerfile,
 		Tags:       []string{imageName},
 		Remove:     true,
@@ -55,23 +99,30 @@ func CreateContainerWithLocalDockerfile(filename string, directory string) error
 
 	if err != nil {
 		fmt.Printf("%+v\n", err)
-		return errors.New("failed to build image")
+		return "", errors.New("failed to build image")
 	}
 
 	io.Copy(os.Stdout, sandboxImage.Body)
 
 	defer sandboxImage.Body.Close()
 
-	fmt.Printf("Created Image %s using local %s\n", sandboxImage.OSType, filename)
+	fmt.Printf("Created Image %s using local %s\n", sandboxImage.OSType, DockerContext)
+
+	return imageName, nil
+}
+
+// Function to Start Image
+func StartImage(sandbox *Sandbox, DockerContext string, Directory string, ImageName string) (string, error) {
+	ctx := context.Background()
 
 	cwd, err := os.Getwd()
 	if err != nil {
-		return errors.New("failed to get cwd")
+		return "", errors.New("failed to get cwd")
 	}
 
 	// Create a container from the image
-	sandbox_container, err := cli.ContainerCreate(ctx, &container.Config{
-		Image:      imageName,
+	sandbox_container, err := sandbox.Cli.ContainerCreate(ctx, &container.Config{
+		Image:      ImageName,
 		Tty:        true,
 		WorkingDir: "/app",
 		Cmd:        []string{"/bin/sh"},
@@ -84,20 +135,27 @@ func CreateContainerWithLocalDockerfile(filename string, directory string) error
 				Target: "/app",
 			},
 		},
-	}, nil, nil, imageName)
+	}, nil, nil, fmt.Sprintf("%s-%s", "sndbx", Directory))
 
 	if err != nil {
 		fmt.Printf("%+v\n", err)
-		return errors.New("failed to create container")
+		return "", errors.New("failed to create container")
 	}
 	fmt.Printf("Container %s created\n", sandbox_container.ID)
 
+	return sandbox_container.ID, nil
+}
+
+// Function to Create and Attach Exec
+func CreateAndAttachExec(sandbox *Sandbox, DockerContext string, Directory string, ContainerID string) error {
+	ctx := context.Background()
+
 	// Start the container
-	if err := cli.ContainerStart(ctx, sandbox_container.ID, container.StartOptions{}); err != nil {
+	if err := sandbox.Cli.ContainerStart(ctx, ContainerID, container.StartOptions{}); err != nil {
 		fmt.Printf("%+v\n", err)
 		return errors.New("failed to start container")
 	}
-	fmt.Printf("Container %s started\n", sandbox_container.ID)
+	fmt.Printf("Container %s started\n", ContainerID)
 
 	// Exec interactive command
 	execConfig := container.ExecOptions{
@@ -108,13 +166,13 @@ func CreateContainerWithLocalDockerfile(filename string, directory string) error
 		Cmd:          []string{"/bin/sh"},
 	}
 
-	execID, err := cli.ContainerExecCreate(ctx, sandbox_container.ID, execConfig)
+	execID, err := sandbox.Cli.ContainerExecCreate(ctx, ContainerID, execConfig)
 	if err != nil {
 		fmt.Printf("Error creating exec instance: %v\n", err)
 		return errors.New("error creating exec instance")
 	}
 
-	resp, err := cli.ContainerExecAttach(ctx, execID.ID, container.ExecStartOptions{
+	resp, err := sandbox.Cli.ContainerExecAttach(ctx, execID.ID, container.ExecStartOptions{
 		Tty: true,
 	})
 	if err != nil {
@@ -129,23 +187,29 @@ func CreateContainerWithLocalDockerfile(filename string, directory string) error
 		return errors.New("error streaming terminal")
 	}
 
-	// Remove the container
-	if err := cli.ContainerRemove(ctx, sandbox_container.ID, container.RemoveOptions{
+	return nil
+}
+
+// Function to Cleanup Container
+func CleanupContainer(sandbox *Sandbox, DockerContext string, Directory string, ImageName string, ContainerID string) error {
+	ctx := context.Background()
+
+	if err := sandbox.Cli.ContainerRemove(ctx, ContainerID, container.RemoveOptions{
 		Force: true,
 	}); err != nil {
 		fmt.Printf("Error removing container: %v\n", err)
 		return errors.New("error removing container")
 	}
 
-	fmt.Printf("Container %s removed\n", sandbox_container.ID)
+	fmt.Printf("Container %s removed\n", ContainerID)
 
 	// Remove the image
-	if _, err := cli.ImageRemove(ctx, imageName, image.RemoveOptions{}); err != nil {
+	if _, err := sandbox.Cli.ImageRemove(ctx, ImageName, image.RemoveOptions{}); err != nil {
 		fmt.Printf("Error removing image: %v\n", err)
 		return errors.New("error removing image")
 	}
 
-	fmt.Printf("Image %s removed\n", imageName)
+	fmt.Printf("Image %s removed\n", ImageName)
 
 	return nil
 }
