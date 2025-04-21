@@ -1,6 +1,10 @@
 package sandbox
 
-import "github.com/docker/docker/client"
+import (
+	"fmt"
+
+	"github.com/docker/docker/client"
+)
 
 type RemoteImageSandbox struct {
 	ImageName string
@@ -23,7 +27,8 @@ func NewSandboxWithImage(sandbxOpts SandboxOpts) *RemoteImageSandbox {
 		ImageName: sandbxOpts.DockerContext,
 		Directory: sandbxOpts.Directory,
 		Sandbox: &Sandbox{
-			Cli: cli,
+			Cli:         cli,
+			RemoveAfter: sandbxOpts.RemoveAfter,
 		},
 	}
 }
@@ -51,6 +56,13 @@ func (sandbox *RemoteImageSandbox) Start() {
 
 	if err != nil {
 		panic("failed to attach exec")
+	}
+
+	if !sandbox.RemoveAfter {
+		fmt.Printf("Container running with ID: %s\n", containerID)
+		fmt.Printf("To stop/remove the container, run:\n")
+		fmt.Printf("docker stop/rm %s\n", containerID)
+		return
 	}
 
 	err = CleanupContainer(sandbox.Sandbox, sandbox.ImageName, sandbox.Directory, sandbox.ImageName, containerID)

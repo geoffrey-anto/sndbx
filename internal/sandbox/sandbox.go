@@ -2,11 +2,13 @@ package sandbox
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/container"
@@ -17,12 +19,14 @@ import (
 )
 
 type Sandbox struct {
-	Cli *client.Client
+	Cli         *client.Client
+	RemoveAfter bool
 }
 
 type SandboxOpts struct {
 	DockerContext string
 	Directory     string
+	RemoveAfter   bool
 }
 
 func GetAvailableEnvironments() []string {
@@ -61,16 +65,39 @@ func PullImage(sandbox *Sandbox, ImageName string) error {
 	ctx := context.Background()
 
 	reader, err := sandbox.Cli.ImagePull(ctx, ImageName, image.PullOptions{})
-
 	if err != nil {
 		return errors.New("failed to pull image")
 	}
-
 	defer reader.Close()
 
-	// Print the output of the pull command
-	io.Copy(os.Stdout, reader)
+	decoder := json.NewDecoder(reader)
 
+	for decoder.More() {
+		var msg map[string]interface{}
+		if err := decoder.Decode(&msg); err != nil {
+			continue // skip malformed lines
+		}
+
+		progressDetail, ok := msg["progressDetail"].(map[string]interface{})
+		if !ok || progressDetail["current"] == nil || progressDetail["total"] == nil {
+			continue
+		}
+
+		current := int64(progressDetail["current"].(float64))
+		total := int64(progressDetail["total"].(float64))
+		if total == 0 {
+			continue
+		}
+
+		percentage := float64(current) / float64(total) * 100
+		barWidth := 40
+		done := int((percentage / 100) * float64(barWidth))
+		bar := "[" + strings.Repeat("=", done) + ">" + strings.Repeat(" ", barWidth-done) + "]"
+
+		fmt.Printf("\r%s %.2f%%", bar, percentage)
+	}
+
+	fmt.Println("\n✅ Image pull complete")
 	fmt.Printf("Pulled Image %s\n", ImageName)
 
 	return nil
@@ -102,11 +129,11 @@ func BuildImage(sandbox *Sandbox, DockerContext string, Directory string) (strin
 		return "", errors.New("failed to build image")
 	}
 
-	io.Copy(os.Stdout, sandboxImage.Body)
+	io.Copy(io.Discard, sandboxImage.Body)
 
 	defer sandboxImage.Body.Close()
 
-	fmt.Printf("Created Image %s using local %s\n", sandboxImage.OSType, DockerContext)
+	fmt.Printf("🏗️  Created Image %s using local %s\n", sandboxImage.OSType, DockerContext)
 
 	return imageName, nil
 }
@@ -141,7 +168,8 @@ func StartImage(sandbox *Sandbox, DockerContext string, Directory string, ImageN
 		fmt.Printf("%+v\n", err)
 		return "", errors.New("failed to create container")
 	}
-	fmt.Printf("Container %s created\n", sandbox_container.ID)
+
+	fmt.Printf("📦 Container %s created\n", sandbox_container.ID)
 
 	return sandbox_container.ID, nil
 }
@@ -155,7 +183,7 @@ func CreateAndAttachExec(sandbox *Sandbox, DockerContext string, Directory strin
 		fmt.Printf("%+v\n", err)
 		return errors.New("failed to start container")
 	}
-	fmt.Printf("Container %s started\n", ContainerID)
+	fmt.Printf("▶️  Container %s started\n", ContainerID)
 
 	// Exec interactive command
 	execConfig := container.ExecOptions{
@@ -201,7 +229,7 @@ func CleanupContainer(sandbox *Sandbox, DockerContext string, Directory string, 
 		return errors.New("error removing container")
 	}
 
-	fmt.Printf("Container %s removed\n", ContainerID)
+	fmt.Printf("🗑️  Container %s removed\n", ContainerID)
 
 	// Remove the image
 	if _, err := sandbox.Cli.ImageRemove(ctx, ImageName, image.RemoveOptions{}); err != nil {
@@ -209,7 +237,7 @@ func CleanupContainer(sandbox *Sandbox, DockerContext string, Directory string, 
 		return errors.New("error removing image")
 	}
 
-	fmt.Printf("Image %s removed\n", ImageName)
+	fmt.Printf("🗑️  Image %s removed\n", ImageName)
 
 	return nil
 }

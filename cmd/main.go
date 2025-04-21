@@ -23,12 +23,21 @@ func main() {
 					&cli.BoolFlag{
 						Name:        "build",
 						DefaultText: "false",
+						Aliases:     []string{"b"},
 						Usage:       "Enable build mode",
+						Value:       false,
 					},
 					&cli.StringFlag{
-						Name:  "context",
-						Usage: "Name of Dockerfile/Image",
-						Value: "",
+						Name:    "context",
+						Aliases: []string{"c"},
+						Usage:   "Name of Dockerfile/Image",
+						Value:   "",
+					},
+					&cli.BoolFlag{
+						Name:    "remove",
+						Aliases: []string{"rm"},
+						Usage:   "Remove the sandbox after use",
+						Value:   false,
 					},
 				},
 				Action: func(c *cli.Context) error {
@@ -56,6 +65,7 @@ func main() {
 						sandboxInstance := sandbox.NewSandboxWithLocalDockerfile(sandbox.SandboxOpts{
 							DockerContext: c.String("context"),
 							Directory:     currentDirectory,
+							RemoveAfter:   c.Bool("remove"),
 						})
 						sandboxInstance.Start()
 
@@ -78,6 +88,7 @@ func main() {
 						sandboxInstance := sandbox.NewSandboxWithImage(sandbox.SandboxOpts{
 							DockerContext: c.String("context"),
 							Directory:     currentDirectory,
+							RemoveAfter:   c.Bool("remove"),
 						})
 						sandboxInstance.Start()
 					}
