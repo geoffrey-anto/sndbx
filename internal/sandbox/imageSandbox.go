@@ -29,6 +29,7 @@ func NewSandboxWithImage(sandbxOpts SandboxOpts) *RemoteImageSandbox {
 		Sandbox: &Sandbox{
 			Cli:         cli,
 			RemoveAfter: sandbxOpts.RemoveAfter,
+			Ports:       sandbxOpts.Ports,
 		},
 	}
 }

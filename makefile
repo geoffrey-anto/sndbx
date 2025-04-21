@@ -9,3 +9,11 @@ dev-test:
 dev-reset-env:
 	docker image rm -f sndbx-test
 	docker rm -f sndbx-test
+install:
+	go build -o bin/sndbx ./cmd/main.go
+	@echo "sndbx build to bin/sndbx"
+	sudo cp bin/sndbx /bin/sndbx
+	@echo "sndbx installed to /bin/sndbx"
+uninstall:
+	sudo rm -f /bin/sndbx
+	@echo "sndbx uninstalled from /bin/sndbx"

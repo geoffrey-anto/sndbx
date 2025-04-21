@@ -39,6 +39,11 @@ func main() {
 						Usage:   "Remove the sandbox after use",
 						Value:   false,
 					},
+					&cli.IntSliceFlag{
+						Name:    "ports",
+						Aliases: []string{"p"},
+						Usage:   "Ports to expose",
+					},
 				},
 				Action: func(c *cli.Context) error {
 					if c.Bool("build") {
@@ -66,6 +71,7 @@ func main() {
 							DockerContext: c.String("context"),
 							Directory:     currentDirectory,
 							RemoveAfter:   c.Bool("remove"),
+							Ports:         c.IntSlice("ports"),
 						})
 						sandboxInstance.Start()
 
@@ -89,6 +95,7 @@ func main() {
 							DockerContext: c.String("context"),
 							Directory:     currentDirectory,
 							RemoveAfter:   c.Bool("remove"),
+							Ports:         c.IntSlice("ports"),
 						})
 						sandboxInstance.Start()
 					}

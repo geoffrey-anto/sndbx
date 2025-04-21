@@ -15,18 +15,21 @@ import (
 	"github.com/docker/docker/api/types/image"
 	"github.com/docker/docker/api/types/mount"
 	"github.com/docker/docker/client"
+	"github.com/docker/go-connections/nat"
 	"github.com/geoffrey-anto/sndbx/internal/utils"
 )
 
 type Sandbox struct {
 	Cli         *client.Client
 	RemoveAfter bool
+	Ports       []int
 }
 
 type SandboxOpts struct {
 	DockerContext string
 	Directory     string
 	RemoveAfter   bool
+	Ports         []int
 }
 
 func GetAvailableEnvironments() []string {
@@ -147,13 +150,26 @@ func StartImage(sandbox *Sandbox, DockerContext string, Directory string, ImageN
 		return "", errors.New("failed to get cwd")
 	}
 
+	// Define exposed ports
+	exposedPorts := make(map[nat.Port]struct{})
+	portBindings := make(map[nat.Port][]nat.PortBinding) // Map for port bindings
+
+	for _, port := range sandbox.Ports {
+		portStr := fmt.Sprintf("%d/tcp", port)
+		exposedPorts[nat.Port(portStr)] = struct{}{}
+		portBindings[nat.Port(portStr)] = []nat.PortBinding{
+			{HostPort: fmt.Sprintf("%d", port)}, // Mapping container port to host port
+		}
+	}
+
 	// Create a container from the image
 	sandbox_container, err := sandbox.Cli.ContainerCreate(ctx, &container.Config{
-		Image:      ImageName,
-		Tty:        true,
-		WorkingDir: "/app",
-		Cmd:        []string{"/bin/sh"},
-		User:       fmt.Sprintf("%d:%d", os.Getuid(), os.Getgid()),
+		Image:        ImageName,
+		Tty:          true,
+		WorkingDir:   "/app",
+		Cmd:          []string{"/bin/sh"},
+		User:         fmt.Sprintf("%d:%d", os.Getuid(), os.Getgid()),
+		ExposedPorts: exposedPorts,
 	}, &container.HostConfig{
 		Mounts: []mount.Mount{
 			{
@@ -162,6 +178,7 @@ func StartImage(sandbox *Sandbox, DockerContext string, Directory string, ImageN
 				Target: "/app",
 			},
 		},
+		PortBindings: portBindings, // Add the port mappings here
 	}, nil, nil, fmt.Sprintf("%s-%s", "sndbx", Directory))
 
 	if err != nil {
