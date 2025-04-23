@@ -87,7 +87,7 @@ func main() {
 						fmt.Printf("Current directory: %s\n", currentDirectory)
 
 						if c.String("context") == "" {
-							c.Set("context", "ubuntu:latest")
+							return fmt.Errorf("docker image name is required, Eg: %+v", sandbox.GetAvailableEnvironments())
 						}
 						fmt.Printf("Proceeding using %s image\n", c.String("context"))
 
