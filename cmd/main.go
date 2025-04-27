@@ -117,6 +117,21 @@ func main() {
 					return nil
 				},
 			},
+			{
+				Name:  "clear",
+				Usage: "Clear all sandboxes",
+				Action: func(c *cli.Context) error {
+					sandboxClient, err := sandbox.NewSandboxClient()
+
+					if err != nil {
+						return fmt.Errorf("failed to create sandbox client: %v", err)
+					}
+
+					sandboxClient.Clear()
+
+					return nil
+				},
+			},
 		},
 	}
 

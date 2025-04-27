@@ -8,12 +8,14 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/image"
 	"github.com/docker/docker/api/types/mount"
+	"github.com/docker/docker/api/types/network"
 	"github.com/docker/docker/client"
 	"github.com/docker/go-connections/nat"
 	"github.com/geoffrey-anto/sndbx/internal/utils"
@@ -49,6 +51,17 @@ func GetAvailableEnvironments() []string {
 		"centos:latest",
 		"fedora:latest",
 	}
+}
+
+func NewSandboxClient() (*Sandbox, error) {
+	cli, err := client.NewClientWithOpts(client.FromEnv)
+	if err != nil {
+		return nil, errors.New("failed to create Docker client")
+	}
+
+	return &Sandbox{
+		Cli: cli,
+	}, nil
 }
 
 // Function to Check if Image Exists locally or pull it
@@ -323,4 +336,56 @@ func CleanupContainer(sandbox *Sandbox, DockerContext string, Directory string, 
 	fmt.Printf("🗑️  Image %s removed\n", ImageName)
 
 	return nil
+}
+
+func (s *Sandbox) Clear() {
+	ctx := context.Background()
+
+	containers, err := s.Cli.ContainerList(ctx, container.ListOptions{All: true})
+	if err != nil {
+		fmt.Printf("Error listing containers: %v\n", err)
+		return
+	}
+
+	for _, sndbx_container := range containers {
+		if slices.ContainsFunc(sndbx_container.Names, func(s string) bool {
+			return strings.Contains(s, "sndbx-")
+		}) {
+			if err := s.Cli.ContainerRemove(ctx, sndbx_container.ID, container.RemoveOptions{Force: true}); err != nil {
+				fmt.Printf("Error removing container %s: %v\n", sndbx_container.ID, err)
+			} else {
+				fmt.Printf("🗑️  Container %s removed\n", sndbx_container.ID)
+			}
+		}
+	}
+
+	for _, image_sndbx := range containers {
+		if slices.ContainsFunc(image_sndbx.Names, func(s string) bool {
+			return strings.Contains(s, "sndbx-")
+		}) {
+			if _, err := s.Cli.ImageRemove(ctx, image_sndbx.ID, image.RemoveOptions{Force: true}); err != nil {
+				fmt.Printf("Error removing image %s: %v\n", image_sndbx.ID, err)
+			} else {
+				fmt.Printf("🗑️  Image %s removed\n", image_sndbx.ID)
+			}
+		}
+	}
+
+	// List networks and remove those that start with "sndbx-"
+	networks, err := s.Cli.NetworkList(ctx, network.ListOptions{})
+	if err != nil {
+		fmt.Printf("Error listing networks: %v\n", err)
+		return
+	}
+
+	for _, network := range networks {
+		if network.Labels["created_by"] == "sndbx" {
+			if err := s.Cli.NetworkRemove(ctx, network.ID); err != nil {
+				fmt.Printf("Error removing network %s: %v\n", network.Name, err)
+			} else {
+				fmt.Printf("🗑️  Network %s removed\n", network.Name)
+			}
+		}
+	}
+
 }
