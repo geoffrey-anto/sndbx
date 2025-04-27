@@ -24,6 +24,7 @@ type Sandbox struct {
 	RemoveAfter bool
 	Ports       []int
 	Plugins     []string
+	Envs        []string
 }
 
 type SandboxOpts struct {
@@ -32,6 +33,7 @@ type SandboxOpts struct {
 	RemoveAfter   bool
 	Ports         []int
 	Plugins       []string
+	EnvFile       string
 }
 
 type Plugins struct {
@@ -177,6 +179,7 @@ func StartImage(sandbox *Sandbox, DockerContext string, Directory string, ImageN
 		Cmd:          []string{"/bin/sh"},
 		User:         fmt.Sprintf("%d:%d", 0, os.Getgid()),
 		ExposedPorts: exposedPorts,
+		Env:          sandbox.Envs,
 	}, &container.HostConfig{
 		Mounts: []mount.Mount{
 			{
@@ -205,6 +208,7 @@ func StartPluginImage(sandbox *Sandbox, PluginImageName string, NetworkName stri
 	// Create a container for the plugin image; Eg: postgres as "sndbx-postgres"
 	sandbox_container, err := sandbox.Cli.ContainerCreate(ctx, &container.Config{
 		Image: PluginImageName,
+		Env:   sandbox.Envs,
 	}, &container.HostConfig{
 		NetworkMode: container.NetworkMode(NetworkName),
 	}, nil, nil, fmt.Sprintf("%s-%s", "sndbx", PluginImageName))
@@ -219,6 +223,7 @@ func StartPluginImage(sandbox *Sandbox, PluginImageName string, NetworkName stri
 		// Retry creating the container after pulling the image
 		sandbox_container, err = sandbox.Cli.ContainerCreate(ctx, &container.Config{
 			Image: PluginImageName,
+			Env:   sandbox.Envs,
 		}, &container.HostConfig{
 			NetworkMode: container.NetworkMode(NetworkName),
 		}, nil, nil, fmt.Sprintf("%s-%s", "sndbx", PluginImageName))

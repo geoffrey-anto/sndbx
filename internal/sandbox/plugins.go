@@ -25,12 +25,18 @@ func CreateAndAttachPlugins(sandbox *Sandbox, plugins []string, networkName stri
 			fmt.Printf("%+v\n", err)
 			return nil, errors.New("failed to start container")
 		}
-		fmt.Printf("▶️  Container %s started\n", pluginContainerId)
 
 		attachedPlugins = append(attachedPlugins, Plugins{
 			PluginName:  plugin,
 			ContainerID: pluginContainerId,
 		})
+	}
+
+	for _, plugin := range attachedPlugins {
+		fmt.Printf("🔌 Plugin %s started with ID: %s\n", plugin.PluginName, plugin.ContainerID)
+		fmt.Printf("🚀 You can access the container using: docker exec -it %s bash or via network as %s\n", plugin.ContainerID, "sndbx-"+plugin.PluginName)
+		fmt.Println()
+
 	}
 
 	return attachedPlugins, nil

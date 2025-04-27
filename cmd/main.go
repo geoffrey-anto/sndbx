@@ -49,6 +49,12 @@ func main() {
 						Usage: "List of Containers to be attached to the sandbox via network bridge",
 						Value: cli.NewStringSlice(""),
 					},
+					&cli.StringFlag{
+						Name:    "env",
+						Aliases: []string{"e"},
+						Usage:   "Environment variables to set in the sandbox",
+						Value:   "",
+					},
 				},
 				Action: func(c *cli.Context) error {
 					if c.Bool("build") {
@@ -78,6 +84,7 @@ func main() {
 							RemoveAfter:   c.Bool("remove"),
 							Ports:         c.IntSlice("ports"),
 							Plugins:       c.StringSlice("plugins"),
+							EnvFile:       c.String("env"),
 						})
 						sandboxInstance.Start()
 
@@ -103,6 +110,7 @@ func main() {
 							RemoveAfter:   c.Bool("remove"),
 							Ports:         c.IntSlice("ports"),
 							Plugins:       c.StringSlice("plugins"),
+							EnvFile:       c.String("env"),
 						})
 						sandboxInstance.Start()
 					}

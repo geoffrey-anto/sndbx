@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"github.com/docker/docker/client"
+	"github.com/geoffrey-anto/sndbx/internal/utils"
 )
 
 type RemoteImageSandbox struct {
@@ -23,6 +24,8 @@ func NewSandboxWithImage(sandbxOpts SandboxOpts) *RemoteImageSandbox {
 		panic("provide image to be used")
 	}
 
+	env := utils.ParseEnv(sandbxOpts.EnvFile)
+
 	return &RemoteImageSandbox{
 		ImageName: sandbxOpts.DockerContext,
 		Directory: sandbxOpts.Directory,
@@ -31,6 +34,7 @@ func NewSandboxWithImage(sandbxOpts SandboxOpts) *RemoteImageSandbox {
 			RemoveAfter: sandbxOpts.RemoveAfter,
 			Ports:       sandbxOpts.Ports,
 			Plugins:     sandbxOpts.Plugins,
+			Envs:        env,
 		},
 	}
 }

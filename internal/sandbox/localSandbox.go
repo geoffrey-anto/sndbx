@@ -5,6 +5,7 @@ import (
 	"os"
 
 	"github.com/docker/docker/client"
+	"github.com/geoffrey-anto/sndbx/internal/utils"
 )
 
 type LocalImageSandbox struct {
@@ -26,6 +27,8 @@ func NewSandboxWithLocalDockerfile(sandbxOpts SandboxOpts) *LocalImageSandbox {
 		panic("Cannot read current file path! Please check permissions\n")
 	}
 
+	env := utils.ParseEnv(sandbxOpts.EnvFile)
+
 	for _, fileInCurrentDirectory := range filesInCurrentDirectory {
 		if fileInCurrentDirectory.Name() == sandbxOpts.DockerContext {
 			return &LocalImageSandbox{
@@ -36,6 +39,7 @@ func NewSandboxWithLocalDockerfile(sandbxOpts SandboxOpts) *LocalImageSandbox {
 					RemoveAfter: sandbxOpts.RemoveAfter,
 					Ports:       sandbxOpts.Ports,
 					Plugins:     sandbxOpts.Plugins,
+					Envs:        env,
 				},
 			}
 		}
