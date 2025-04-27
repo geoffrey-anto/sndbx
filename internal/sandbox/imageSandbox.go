@@ -30,6 +30,7 @@ func NewSandboxWithImage(sandbxOpts SandboxOpts) *RemoteImageSandbox {
 			Cli:         cli,
 			RemoveAfter: sandbxOpts.RemoveAfter,
 			Ports:       sandbxOpts.Ports,
+			Plugins:     sandbxOpts.Plugins,
 		},
 	}
 }
@@ -47,7 +48,17 @@ func (sandbox *RemoteImageSandbox) Start() {
 		}
 	}
 
-	containerID, err := StartImage(sandbox.Sandbox, sandbox.ImageName, sandbox.Directory, sandbox.ImageName)
+	networkId, err := CreateSandboxNetwork(sandbox.Sandbox, "sandbox_network")
+	if err != nil {
+		panic("failed to create network")
+	}
+
+	plugins, err := CreateAndAttachPlugins(sandbox.Sandbox, sandbox.Plugins, networkId)
+	if err != nil {
+		panic("failed to create and attach plugins")
+	}
+
+	containerID, err := StartImage(sandbox.Sandbox, sandbox.ImageName, sandbox.Directory, sandbox.ImageName, networkId)
 
 	if err != nil {
 		panic("failed to start container")
@@ -63,10 +74,17 @@ func (sandbox *RemoteImageSandbox) Start() {
 		fmt.Printf("Container running with ID: %s\n", containerID)
 		fmt.Printf("To stop/remove the container, run:\n")
 		fmt.Printf("docker stop/rm %s\n", containerID)
+
+		fmt.Printf("To stop/remove the plugin containers, run:\n")
+		for _, plugin := range plugins {
+			fmt.Printf("docker stop/rm %s\n", plugin.ContainerID)
+		}
+		fmt.Printf("To stop/remove the network, run:\n")
+		fmt.Printf("docker network rm %s\n", networkId)
 		return
 	}
 
-	err = CleanupContainer(sandbox.Sandbox, sandbox.ImageName, sandbox.Directory, sandbox.ImageName, containerID)
+	err = CleanupContainer(sandbox.Sandbox, sandbox.ImageName, sandbox.Directory, sandbox.ImageName, containerID, plugins, networkId)
 
 	if err != nil {
 		panic("failed to cleanup container")

@@ -44,6 +44,11 @@ func main() {
 						Aliases: []string{"p"},
 						Usage:   "Ports to expose",
 					},
+					&cli.StringSliceFlag{
+						Name:  "plugins",
+						Usage: "List of Containers to be attached to the sandbox via network bridge",
+						Value: cli.NewStringSlice(""),
+					},
 				},
 				Action: func(c *cli.Context) error {
 					if c.Bool("build") {
@@ -72,6 +77,7 @@ func main() {
 							Directory:     currentDirectory,
 							RemoveAfter:   c.Bool("remove"),
 							Ports:         c.IntSlice("ports"),
+							Plugins:       c.StringSlice("plugins"),
 						})
 						sandboxInstance.Start()
 
@@ -96,6 +102,7 @@ func main() {
 							Directory:     currentDirectory,
 							RemoveAfter:   c.Bool("remove"),
 							Ports:         c.IntSlice("ports"),
+							Plugins:       c.StringSlice("plugins"),
 						})
 						sandboxInstance.Start()
 					}

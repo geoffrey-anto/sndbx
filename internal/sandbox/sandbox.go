@@ -23,6 +23,7 @@ type Sandbox struct {
 	Cli         *client.Client
 	RemoveAfter bool
 	Ports       []int
+	Plugins     []string
 }
 
 type SandboxOpts struct {
@@ -30,6 +31,12 @@ type SandboxOpts struct {
 	Directory     string
 	RemoveAfter   bool
 	Ports         []int
+	Plugins       []string
+}
+
+type Plugins struct {
+	PluginName  string
+	ContainerID string
 }
 
 func GetAvailableEnvironments() []string {
@@ -142,7 +149,7 @@ func BuildImage(sandbox *Sandbox, DockerContext string, Directory string) (strin
 }
 
 // Function to Start Image
-func StartImage(sandbox *Sandbox, DockerContext string, Directory string, ImageName string) (string, error) {
+func StartImage(sandbox *Sandbox, DockerContext string, Directory string, ImageName string, NetworkName string) (string, error) {
 	ctx := context.Background()
 
 	cwd, err := os.Getwd()
@@ -168,7 +175,7 @@ func StartImage(sandbox *Sandbox, DockerContext string, Directory string, ImageN
 		Tty:          true,
 		WorkingDir:   "/app",
 		Cmd:          []string{"/bin/sh"},
-		User:         fmt.Sprintf("%d:%d", os.Getuid(), os.Getgid()),
+		User:         fmt.Sprintf("%d:%d", 0, os.Getgid()),
 		ExposedPorts: exposedPorts,
 	}, &container.HostConfig{
 		Mounts: []mount.Mount{
@@ -178,6 +185,7 @@ func StartImage(sandbox *Sandbox, DockerContext string, Directory string, ImageN
 				Target: "/app",
 			},
 		},
+		NetworkMode:  container.NetworkMode(NetworkName),
 		PortBindings: portBindings, // Add the port mappings here
 	}, nil, nil, fmt.Sprintf("%s-%s", "sndbx", Directory))
 
@@ -187,6 +195,43 @@ func StartImage(sandbox *Sandbox, DockerContext string, Directory string, ImageN
 	}
 
 	fmt.Printf("📦 Container %s created\n", sandbox_container.ID)
+
+	return sandbox_container.ID, nil
+}
+
+func StartPluginImage(sandbox *Sandbox, PluginImageName string, NetworkName string) (string, error) {
+	ctx := context.Background()
+
+	// Create a container for the plugin image; Eg: postgres as "sndbx-postgres"
+	sandbox_container, err := sandbox.Cli.ContainerCreate(ctx, &container.Config{
+		Image: PluginImageName,
+	}, &container.HostConfig{
+		NetworkMode: container.NetworkMode(NetworkName),
+	}, nil, nil, fmt.Sprintf("%s-%s", "sndbx", PluginImageName))
+
+	if err != nil {
+		err = PullImage(sandbox, PluginImageName)
+		if err != nil {
+			fmt.Printf("%+v\n", err)
+			return "", errors.New("failed to pull plugin image")
+		}
+
+		// Retry creating the container after pulling the image
+		sandbox_container, err = sandbox.Cli.ContainerCreate(ctx, &container.Config{
+			Image: PluginImageName,
+		}, &container.HostConfig{
+			NetworkMode: container.NetworkMode(NetworkName),
+		}, nil, nil, fmt.Sprintf("%s-%s", "sndbx", PluginImageName))
+
+		// Check for errors again
+		// If it fails again, return the error
+		if err != nil {
+			fmt.Printf("%+v\n", err)
+			return "", errors.New("failed to create plugin container")
+		}
+	}
+
+	fmt.Printf("📦 Plugin Sidecar Container %s created\n", sandbox_container.ID)
 
 	return sandbox_container.ID, nil
 }
@@ -236,7 +281,7 @@ func CreateAndAttachExec(sandbox *Sandbox, DockerContext string, Directory strin
 }
 
 // Function to Cleanup Container
-func CleanupContainer(sandbox *Sandbox, DockerContext string, Directory string, ImageName string, ContainerID string) error {
+func CleanupContainer(sandbox *Sandbox, DockerContext string, Directory string, ImageName string, ContainerID string, plugins []Plugins, NetworkName string) error {
 	ctx := context.Background()
 
 	if err := sandbox.Cli.ContainerRemove(ctx, ContainerID, container.RemoveOptions{
@@ -252,6 +297,22 @@ func CleanupContainer(sandbox *Sandbox, DockerContext string, Directory string, 
 	if _, err := sandbox.Cli.ImageRemove(ctx, ImageName, image.RemoveOptions{}); err != nil {
 		fmt.Printf("Error removing image: %v\n", err)
 		return errors.New("error removing image")
+	}
+
+	// Remove the plugins
+	for _, plugin := range plugins {
+		if err := sandbox.Cli.ContainerRemove(ctx, plugin.ContainerID, container.RemoveOptions{
+			Force: true,
+		}); err != nil {
+			fmt.Printf("Error removing plugin container: %v\n", err)
+			return errors.New("error removing plugin container")
+		}
+		fmt.Printf("🗑️  Plugin Sidecar Container %s removed\n", plugin.ContainerID)
+	}
+	// Remove the network
+	if err := sandbox.Cli.NetworkRemove(ctx, NetworkName); err != nil {
+		fmt.Printf("Error removing network: %v\n", err)
+		return errors.New("error removing network")
 	}
 
 	fmt.Printf("🗑️  Image %s removed\n", ImageName)
